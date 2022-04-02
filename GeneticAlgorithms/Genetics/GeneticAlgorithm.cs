@@ -24,6 +24,7 @@ public class GeneticAlgorithm<TGene>
     public object Target { get; set; }
     public double MutationRate { get; set; }
     public int ThreadCount { get; set; } = 1;
+    public IChromosome<TGene>? CurrentBest { get; private set; }
 
     public record GenerationContext(BreedingPool<TGene> Pool, int IterationNumber);
 
@@ -36,7 +37,7 @@ public class GeneticAlgorithm<TGene>
         return new GeneticAlgorithm<TGene>(initialPopulationSize, target, targetFitness, chromosomeFactory);
     }
 
-    public Task<IChromosome<TGene>> Compute(Action<GenerationContext>? action = null)
+    public Task<IChromosome<TGene>> Compute(Action<GenerationContext>? action = null, CancellationToken token = default)
     {
         int iterationCount = 0;
 
@@ -55,9 +56,16 @@ public class GeneticAlgorithm<TGene>
                 cts.Cancel();
                 tcs.SetResult(result);
             }
+
             Debug.Assert(generations.Count == ThreadCount);
             MergeAndPrune(generations);
             generations.Clear();
+
+            if (token.IsCancellationRequested && !cts.IsCancellationRequested)
+            {
+                cts.Cancel();
+                tcs.SetResult(CurrentBest);
+            }
         });
 
         for (int i = 0; i < ThreadCount;i++)
@@ -88,7 +96,9 @@ public class GeneticAlgorithm<TGene>
     {
         var newChromosomes = BreedingPool<TGene>.Create(newPopulations.SelectMany(x => x.Population), Target);
         var random = newPopulations.First().Population.Random;
-        _population = new Population<TGene>(_populationSize, newChromosomes.Select(x => x.Chromosome).Take(_populationSize), random);
+        var selected = newChromosomes.Select(x => x.Chromosome).Take(_populationSize).ToList();
+        CurrentBest = selected.First();
+        _population = new Population<TGene>(_populationSize, selected, random);
     }
 
     private GenerationResult ComputeOne(IPopulation<TGene> population, Action<GenerationContext>? action, int iterationNumber, Random random)
