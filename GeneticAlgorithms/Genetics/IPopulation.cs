@@ -1,13 +1,11 @@
 ﻿using System.Collections;
-using System.Runtime.CompilerServices;
-using ArtificialIntelligenceCourse;
 
-namespace GeneticAlgorithms;
+namespace GeneticAlgorithms.Genetics;
 
 public interface IPopulation<TGene> : IEnumerable<IChromosome<TGene>>
 {
     Random Random { get; }
-    BreedingPool<TGene> SelectBreedingPool(IChromosome<TGene> target);
+    BreedingPool<TGene> SelectBreedingPool(object target);
     IPopulation<TGene> Crossover(List<WeightedChromosome<TGene>> breedingPool, Random? random);
     void Mutate(double mutationRate);
     void Add(IPopulation<TGene> newPopulation);
@@ -54,7 +52,7 @@ public class Population<TGene> : IPopulation<TGene>
         return current.Chromosome;
     }
 
-    public BreedingPool<TGene> SelectBreedingPool(IChromosome<TGene> target)
+    public BreedingPool<TGene> SelectBreedingPool(object target)
     {
         return BreedingPool<TGene>.Create(this, target);
     }

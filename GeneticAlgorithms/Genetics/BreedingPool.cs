@@ -1,6 +1,4 @@
-﻿using ArtificialIntelligenceCourse;
-
-namespace GeneticAlgorithms;
+﻿namespace GeneticAlgorithms.Genetics;
 
 public class BreedingPool<TGene> : List<WeightedChromosome<TGene>>
 {
@@ -9,7 +7,7 @@ public class BreedingPool<TGene> : List<WeightedChromosome<TGene>>
     {
     }
 
-    public static BreedingPool<TGene> Create(IEnumerable<IChromosome<TGene>> source, IChromosome<TGene> target)
+    public static BreedingPool<TGene> Create(IEnumerable<IChromosome<TGene>> source, object target)
     {
         var sourcePool = source.Select(x => new WeightedChromosome<TGene>(x, x.Fitness(target))).ToList();
         var ratio = 100.0 / sourcePool.Max(x => x.Fitness);

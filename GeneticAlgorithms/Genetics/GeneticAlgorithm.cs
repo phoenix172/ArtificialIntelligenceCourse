@@ -1,17 +1,15 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using ArtificialIntelligenceCourse;
-using Microsoft.VisualBasic;
 
-namespace GeneticAlgorithms;
+namespace GeneticAlgorithms.Genetics;
 
 public class GeneticAlgorithm<TGene>
 {
     private readonly int _populationSize;
     private IPopulation<TGene> _population;
 
-    private GeneticAlgorithm(int populationSize, IChromosome<TGene> target, double targetFitness, ChromosomeFactory<TGene> chromosomeFactory, double mutationRate = 0.001d)
+    private GeneticAlgorithm(int populationSize, object target, double targetFitness, ChromosomeFactory<TGene> chromosomeFactory, double mutationRate = 0.001d)
     {
         Target = target;
         TargetFitness = targetFitness;
@@ -23,7 +21,7 @@ public class GeneticAlgorithm<TGene>
     }
 
     public double TargetFitness { get; set; }
-    public IChromosome<TGene> Target { get; set; }
+    public object Target { get; set; }
     public double MutationRate { get; set; }
     public int ThreadCount { get; set; } = 1;
 
@@ -31,10 +29,11 @@ public class GeneticAlgorithm<TGene>
 
     public static GeneticAlgorithm<TGene> Create(
         int initialPopulationSize,
-        IChromosome<TGene> target,
+        object target,
+        double targetFitness,
         ChromosomeFactory<TGene> chromosomeFactory)
     {
-        return new GeneticAlgorithm<TGene>(initialPopulationSize, target, target.Fitness(target), chromosomeFactory);
+        return new GeneticAlgorithm<TGene>(initialPopulationSize, target, targetFitness, chromosomeFactory);
     }
 
     public Task<IChromosome<TGene>> Compute(Action<GenerationContext>? action = null)
@@ -71,7 +70,7 @@ public class GeneticAlgorithm<TGene>
                 {
                     var newPopulation = ComputeOne(_population, action, Interlocked.Increment(ref iterationCount),random);
                     generations.Add(newPopulation);
-                    Console.WriteLine($"Thread { threadNumber} done");
+                    //Console.WriteLine($"Thread { threadNumber} done");
 
                     barrier.SignalAndWait();
                 }

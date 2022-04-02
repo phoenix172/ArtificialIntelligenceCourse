@@ -1,4 +1,4 @@
-﻿using ArtificialIntelligenceCourse;
+﻿using GeneticAlgorithms.Genetics;
 
 namespace GeneticAlgorithms;
 
@@ -12,7 +12,7 @@ record Word(string Value, IReadOnlyList<char> Alphabet) : IChromosome<char>
 
     private char NewChar(Random random) => Alphabet[random.Next(0,Alphabet.Count)];
 
-    public double Fitness(IChromosome<char> target)
+    public double Fitness(object target)
     {
         return Fitness(this, target as Word ?? throw new ArgumentException(nameof(target)));
     }
@@ -41,24 +41,6 @@ record Word(string Value, IReadOnlyList<char> Alphabet) : IChromosome<char>
     }
 
     public string Value { get; private set; } = Value;
-
-    public virtual bool Equals(Word? other)
-    {
-        if (ReferenceEquals(null, other)) return false;
-        if (ReferenceEquals(this, other)) return true;
-        return Value == other.Value;
-    }
-
-    public virtual bool Equals(IEnumerable<char>? other)
-    {
-        if (other == null) return false;
-        return Value.SequenceEqual(other);
-    }
-
-    public override int GetHashCode()
-    {
-        return Value.GetHashCode();
-    }
-
+    
     public override string ToString() => Value;
 }
