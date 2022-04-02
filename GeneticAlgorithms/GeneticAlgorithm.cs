@@ -1,33 +1,14 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using ArtificialIntelligenceCourse;
+using Microsoft.VisualBasic;
 
 namespace GeneticAlgorithms;
 
-public class ThreadLocalRandom
-{
-    readonly ThreadLocal<Random> random =
-        new ThreadLocal<Random>(() => new Random(GetSeed()));
-
-    int Rand()
-    {
-        return random.Value.Next();
-    }
-
-    static int GetSeed()
-    {
-        return Environment.TickCount * Thread.CurrentThread.ManagedThreadId;
-    }
-
-    public Random Instance => random.Value;
-}
-
 public class GeneticAlgorithm<TGene>
 {
-    
-    private readonly ThreadLocalRandom _random = new();
-
     private readonly int _populationSize;
-    private readonly ChromosomeFactory<TGene> _chromosomeFactory;
     private IPopulation<TGene> _population;
 
     private GeneticAlgorithm(int populationSize, IChromosome<TGene> target, double targetFitness, ChromosomeFactory<TGene> chromosomeFactory, double mutationRate = 0.001d)
@@ -36,15 +17,15 @@ public class GeneticAlgorithm<TGene>
         TargetFitness = targetFitness;
         MutationRate = mutationRate;
         _populationSize = populationSize;
-        _chromosomeFactory = chromosomeFactory;
+
         _population = Population<TGene>
-            .CreateRandom(populationSize, chromosomeFactory, _random.Instance);
+            .CreateRandom(populationSize, chromosomeFactory, new Random());
     }
 
     public double TargetFitness { get; set; }
     public IChromosome<TGene> Target { get; set; }
     public double MutationRate { get; set; }
-    public int ThreadCount { get; set; } = 10;
+    public int ThreadCount { get; set; } = 1;
 
     public record GenerationContext(BreedingPool<TGene> Pool, int IterationNumber);
 
@@ -56,35 +37,62 @@ public class GeneticAlgorithm<TGene>
         return new GeneticAlgorithm<TGene>(initialPopulationSize, target, target.Fitness(target), chromosomeFactory);
     }
 
-    public async Task<IChromosome<TGene>> Compute(Action<GenerationContext>? action = null)
+    public Task<IChromosome<TGene>> Compute(Action<GenerationContext>? action = null)
     {
         int iterationCount = 0;
 
-        var randoms = Enumerable.Range(1, ThreadCount).Select(x =>
-        {
-            Thread.Sleep(x+7);
-            return new Random(x+DateTime.Now.Ticks.GetHashCode());
-        }).ToArray();
+        Random globalRandom = new Random(DateTime.UtcNow.GetHashCode());
 
-        while (true)
+        List<Thread> workers = new();
+        ConcurrentBag<GenerationResult> generations = new();
+        CancellationTokenSource cts = new();
+        TaskCompletionSource<IChromosome<TGene>> tcs = new();
+
+        Barrier barrier = new Barrier(ThreadCount, _ =>
         {
-            var tasks = Enumerable.Range(1, ThreadCount).Select(i => Task.Run(() =>
+            if (generations.FirstOrDefault(x => x.Result != null)?.Result is { } result)
             {
-                var newPopulation= ComputeOne(_population, action, Interlocked.Increment(ref iterationCount), randoms[i-1]);
-                return newPopulation;
-            }));
+                if (cts.IsCancellationRequested) return;
+                cts.Cancel();
+                tcs.SetResult(result);
+            }
+            Debug.Assert(generations.Count == ThreadCount);
+            MergeAndPrune(generations);
+            generations.Clear();
+        });
 
-            var newPopulations = await Task.WhenAll(tasks);
+        for (int i = 0; i < ThreadCount;i++)
+        {
+            Thread worker = new Thread(() =>
+            {
+                int threadNumber = i;
+                Random random = new Random(DateTime.UtcNow.GetHashCode() + threadNumber + globalRandom.Next(0, 1000));
+                while (!cts.IsCancellationRequested)
+                {
+                    var newPopulation = ComputeOne(_population, action, Interlocked.Increment(ref iterationCount),random);
+                    generations.Add(newPopulation);
+                    Console.WriteLine($"Thread { threadNumber} done");
 
-            (_, IChromosome<TGene>? Result) = newPopulations.FirstOrDefault(x => x.Result != null);
-            if (Result is not null) return Result;
-
-            var newChromosomes = newPopulations.SelectMany(x => x.Population.SelectBreedingPool(Target)).Take(_populationSize).Select(x=>x.Chromosome).ToList();
-            _population = new Population<TGene>(_populationSize, newChromosomes, newPopulations.First().Population.Random);
+                    barrier.SignalAndWait();
+                }
+            });
+            workers.Add(worker);
+            worker.Start();
         }
+
+        return tcs.Task;
     }
 
-    private (IPopulation<TGene> Population, IChromosome<TGene>? Result) ComputeOne(IPopulation<TGene> population, Action<GenerationContext>? action, int iterationNumber, Random random)
+    private record GenerationResult(IPopulation<TGene> Population, IChromosome<TGene>? Result);
+
+    private void MergeAndPrune(IEnumerable<GenerationResult> newPopulations)
+    {
+        var newChromosomes = BreedingPool<TGene>.Create(newPopulations.SelectMany(x => x.Population), Target);
+        var random = newPopulations.First().Population.Random;
+        _population = new Population<TGene>(_populationSize, newChromosomes.Select(x => x.Chromosome).Take(_populationSize), random);
+    }
+
+    private GenerationResult ComputeOne(IPopulation<TGene> population, Action<GenerationContext>? action, int iterationNumber, Random random)
     {
         var pool = population.SelectBreedingPool(Target);
 
@@ -93,14 +101,13 @@ public class GeneticAlgorithm<TGene>
         bool success = Evaluate(pool, out var result);
         if (success)
         {
-            return (population, result);
+            return new (population, result);
         }
 
-        Console.WriteLine(_random.Instance.GetHashCode());
         var newPopulation = population.Crossover(pool, random);
         newPopulation.Mutate(MutationRate);
         
-        return (newPopulation, result);
+        return new (newPopulation, result);
     }
 
     private bool Evaluate(BreedingPool<TGene> pool, [NotNullWhen(true)]out IChromosome<TGene>? result)

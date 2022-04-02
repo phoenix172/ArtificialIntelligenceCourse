@@ -30,7 +30,7 @@ public class Population<TGene> : IPopulation<TGene>
     {
         var chromosomes = Enumerable
             .Range(1, populationSize)
-            .Select(_ => factory())
+            .Select(_ => factory(random))
             .ToList();
         var population = new Population<TGene>(populationSize, chromosomes, random);
         return population;
@@ -114,4 +114,4 @@ public record WeightedChromosome<TGene>(IChromosome<TGene> Chromosome, double Fi
     }
 };
 
-public delegate IChromosome<TGene> ChromosomeFactory<TGene>();
+public delegate IChromosome<TGene> ChromosomeFactory<TGene>(Random random);
