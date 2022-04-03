@@ -12,7 +12,7 @@ record Word(string Value, IReadOnlyList<char> Alphabet) : IChromosome<char>
 
     private char NewChar(Random random) => Alphabet[random.Next(0,Alphabet.Count)];
 
-    public double Fitness(object target)
+    public double Fitness(object? target)
     {
         return Fitness(this, target as Word ?? throw new ArgumentException(nameof(target)));
     }

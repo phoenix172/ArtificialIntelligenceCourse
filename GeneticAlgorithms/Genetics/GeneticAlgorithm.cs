@@ -6,10 +6,16 @@ namespace GeneticAlgorithms.Genetics;
 
 public class GeneticAlgorithm<TGene>
 {
+    private const double Epsilon = 0.0000000001;
+
+    private volatile int _stabilization = 0;
+
     private readonly int _populationSize;
     private IPopulation<TGene> _population;
+    private CancellationTokenSource _tokenSource;
+    private ConcurrentDictionary<WeightedChromosome<TGene>, object?> _optimalSolutions = new();
 
-    private GeneticAlgorithm(int populationSize, object target, double targetFitness, ChromosomeFactory<TGene> chromosomeFactory, double mutationRate = 0.001d)
+    private GeneticAlgorithm(int populationSize, object? target, double targetFitness, ChromosomeFactory<TGene> chromosomeFactory, double mutationRate = 0.001d)
     {
         Target = target;
         TargetFitness = targetFitness;
@@ -21,23 +27,25 @@ public class GeneticAlgorithm<TGene>
     }
 
     public double TargetFitness { get; set; }
-    public object Target { get; set; }
+    public object? Target { get; set; }
     public double MutationRate { get; set; }
     public int ThreadCount { get; set; } = 1;
-    public IChromosome<TGene>? CurrentBest { get; private set; }
+    public int StabilizationThreshold { get; set; } = 1000;
+    public WeightedChromosome<TGene>? CurrentBest { get; private set; }
+    public IEnumerable<WeightedChromosome<TGene>> OptimalSolutions => _optimalSolutions.Keys;
 
     public record GenerationContext(BreedingPool<TGene> Pool, int IterationNumber);
 
     public static GeneticAlgorithm<TGene> Create(
-        int initialPopulationSize,
-        object target,
-        double targetFitness,
-        ChromosomeFactory<TGene> chromosomeFactory)
+        int populationSize,
+        ChromosomeFactory<TGene> chromosomeFactory,
+        object? target = null,
+        double targetFitness = double.MaxValue)
     {
-        return new GeneticAlgorithm<TGene>(initialPopulationSize, target, targetFitness, chromosomeFactory);
+        return new GeneticAlgorithm<TGene>(populationSize, target, targetFitness, chromosomeFactory);
     }
 
-    public Task<IChromosome<TGene>> Compute(Action<GenerationContext>? action = null, CancellationToken token = default)
+    public Task<IChromosome<TGene>?> Compute(Action<GenerationContext>? action = null, CancellationToken token = default)
     {
         int iterationCount = 0;
 
@@ -45,41 +53,40 @@ public class GeneticAlgorithm<TGene>
 
         List<Thread> workers = new();
         ConcurrentBag<GenerationResult> generations = new();
-        CancellationTokenSource cts = new();
-        TaskCompletionSource<IChromosome<TGene>> tcs = new();
+
+        TaskCompletionSource<IChromosome<TGene>?> tcs = new();
+        _tokenSource = new();
 
         Barrier barrier = new Barrier(ThreadCount, _ =>
         {
             if (generations.FirstOrDefault(x => x.Result != null)?.Result is { } result)
             {
-                if (cts.IsCancellationRequested) return;
-                cts.Cancel();
-                tcs.SetResult(result);
+                _tokenSource.Cancel();
+                tcs.TrySetResult(result);
             }
 
             Debug.Assert(generations.Count == ThreadCount);
             MergeAndPrune(generations);
             generations.Clear();
 
-            if (token.IsCancellationRequested && !cts.IsCancellationRequested)
+            if (token.IsCancellationRequested || _tokenSource.IsCancellationRequested)
             {
-                cts.Cancel();
-                tcs.SetResult(CurrentBest);
+                _tokenSource.Cancel();
+                tcs.TrySetResult(CurrentBest?.Chromosome);
             }
         });
 
-        for (int i = 0; i < ThreadCount;i++)
+        for (int i = 0; i < ThreadCount; i++)
         {
             Thread worker = new Thread(() =>
             {
                 int threadNumber = i;
-                Random random = new Random(DateTime.UtcNow.GetHashCode() + threadNumber + globalRandom.Next(0, 1000));
-                while (!cts.IsCancellationRequested)
+                Random random =
+                    new Random(DateTime.UtcNow.GetHashCode() + threadNumber + globalRandom.Next(0, 1000));
+                while (!_tokenSource.IsCancellationRequested)
                 {
-                    var newPopulation = ComputeOne(_population, action, Interlocked.Increment(ref iterationCount),random);
+                    var newPopulation = ComputeOne(_population, action, Interlocked.Increment(ref iterationCount), random);
                     generations.Add(newPopulation);
-                    //Console.WriteLine($"Thread { threadNumber} done");
-
                     barrier.SignalAndWait();
                 }
             });
@@ -96,9 +103,9 @@ public class GeneticAlgorithm<TGene>
     {
         var newChromosomes = BreedingPool<TGene>.Create(newPopulations.SelectMany(x => x.Population), Target);
         var random = newPopulations.First().Population.Random;
-        var selected = newChromosomes.Select(x => x.Chromosome).Take(_populationSize).ToList();
-        CurrentBest = selected.First();
-        _population = new Population<TGene>(_populationSize, selected, random);
+        var selected = newChromosomes.Take(_populationSize).ToList();
+        UpdateCurrentBest(selected.First());
+        _population = new Population<TGene>(_populationSize, selected.Select(x => x.Chromosome), random);
     }
 
     private GenerationResult ComputeOne(IPopulation<TGene> population, Action<GenerationContext>? action, int iterationNumber, Random random)
@@ -110,19 +117,38 @@ public class GeneticAlgorithm<TGene>
         bool success = Evaluate(pool, out var result);
         if (success)
         {
-            return new (population, result);
+            return new(population, result);
         }
 
         var newPopulation = population.Crossover(pool, random);
         newPopulation.Mutate(MutationRate);
-        
-        return new (newPopulation, result);
+
+        return new(newPopulation, result);
     }
 
-    private bool Evaluate(BreedingPool<TGene> pool, [NotNullWhen(true)]out IChromosome<TGene>? result)
+    private void UpdateCurrentBest(WeightedChromosome<TGene> best)
+    {
+        double delta = Math.Abs(best.Fitness - CurrentBest?.Fitness ?? 0);
+        if (delta < Epsilon)
+        {
+            Interlocked.Increment(ref _stabilization);
+            _optimalSolutions.TryAdd(best, null);
+        }
+        else
+        {
+            Interlocked.Exchange(ref _stabilization, 0);
+            _optimalSolutions.Clear();
+        }
+
+        if (_stabilization >= StabilizationThreshold) _tokenSource.Cancel();
+
+        CurrentBest = best;
+    }
+
+    private bool Evaluate(BreedingPool<TGene> pool, [NotNullWhen(true)] out IChromosome<TGene>? result)
     {
         var best = pool.First();
-        if (best.Chromosome.Equals(Target))
+        if (best.Fitness >= TargetFitness)
         {
             result = best.Chromosome;
             return true;

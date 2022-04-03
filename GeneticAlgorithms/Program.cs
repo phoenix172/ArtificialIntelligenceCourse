@@ -3,4 +3,4 @@ using GeneticAlgorithms;
 
 //await WordGame.Run();
 
-await TravelingSalesperson.Run();
+await TravelingSalesman.Run();

@@ -5,7 +5,7 @@ namespace GeneticAlgorithms.Genetics;
 public interface IPopulation<TGene> : IEnumerable<IChromosome<TGene>>
 {
     Random Random { get; }
-    BreedingPool<TGene> SelectBreedingPool(object target);
+    BreedingPool<TGene> SelectBreedingPool(object? target);
     IPopulation<TGene> Crossover(List<WeightedChromosome<TGene>> breedingPool, Random? random);
     void Mutate(double mutationRate);
     void Add(IPopulation<TGene> newPopulation);
@@ -52,7 +52,7 @@ public class Population<TGene> : IPopulation<TGene>
         return current.Chromosome;
     }
 
-    public BreedingPool<TGene> SelectBreedingPool(object target)
+    public BreedingPool<TGene> SelectBreedingPool(object? target)
     {
         return BreedingPool<TGene>.Create(this, target);
     }
