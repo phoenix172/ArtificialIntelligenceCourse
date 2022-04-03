@@ -27,20 +27,19 @@ public class Population<TGene> : IPopulation<TGene>
 
     private IChromosome<TGene> SelectChromosome(List<WeightedChromosome<TGene>> pool)
     {
-        WeightedChromosome<TGene> current = pool[0];
+        WeightedChromosome<TGene> current = pool[Random.Next(_populationCount)];
         double maxFitness = current.NormalizedFitness;
 
         for (int i = 0;i<1000;i++)
         {
-            int index = (int) Math.Floor((double) Random.Next(_populationCount));
-            current = pool[index];
+            current = pool[Random.Next(_populationCount)];
             if (Random.NextDouble()*maxFitness < current.NormalizedFitness)
             {
                 return current.Chromosome;
             }
         }
 
-        return current.Chromosome;
+        throw new InvalidOperationException("Selection failed");
     }
 
     public BreedingPool<TGene> SelectBreedingPool(object? target)
