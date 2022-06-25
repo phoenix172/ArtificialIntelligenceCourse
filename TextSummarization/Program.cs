@@ -8,11 +8,10 @@ namespace TextSummarization
 {
     class Program
     {
-        
         public static void Main()
         {
-            string textToSummarize = File.ReadAllText("SampleText2.txt");
-            int summarizePercentage = 15;
+            string textToSummarize = File.ReadAllText("SampleText.txt");
+            int summarizePercentage = 33;
 
             string[] sentences = textToSummarize
                 .Split(Constants.SentenceEndCharacters, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -37,14 +36,12 @@ namespace TextSummarization
             int maxScore = scoredTokens.Max(x => x.Count);
             var tokenScoresNormalized = scoredTokens.ToDictionary(x => x.Token, x => (double)x.Count / maxScore);
 
-            var scoredSentences =
+            List<(string Sentence, double Score)> scoredSentences =
                 sentences
                     .Select((sentence, i) => (Sentence: sentence, Score: sentenceTokens[i].Sum(token => tokenScoresNormalized[token])))
                     .ToList();
 
             int finalSentencesCount = (int)Math.Max(1,Math.Ceiling(((double) summarizePercentage/100) * sentences.Length));
-
-            //scoredSentences.ForEach(x=>Console.WriteLine(x));
 
             var topScoredSentences = sentences.Select((sentence, i) => (OriginalIndex: i, SentenceText: sentence, Score: scoredSentences[i]))
                 .OrderByDescending(x => x.Score).Take(finalSentencesCount);
